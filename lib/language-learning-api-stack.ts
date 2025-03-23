@@ -43,7 +43,41 @@ export class LanguageLearningApiStack extends cdk.Stack {
     });
 
     const phrases = api.root.addResource('phrases');
-    phrases.addMethod('POST', new apigateway.LambdaIntegration(postPhraseFunction));
+    const postMethod = phrases.addMethod('POST', new apigateway.LambdaIntegration(postPhraseFunction), {
+      apiKeyRequired: true
+    });    
+
+
+    // 创建 API Key
+    const apiKey = api.addApiKey('LanguageApiKey', {
+      apiKeyName: 'LanguageLearningApiKey',
+      description: 'API Key for protected write endpoints',
+    });
+
+    // 创建使用计划
+    const usagePlan = api.addUsagePlan('UsagePlan', {
+      name: 'BasicUsagePlan',
+      throttle: {
+        rateLimit: 5,
+        burstLimit: 2
+      }
+    });
+    usagePlan.addApiKey(apiKey);
+
+    // ✅ 把 POST 方法绑定到 usage plan
+    usagePlan.addApiStage({
+      stage: api.deploymentStage,
+      throttle: [
+        {
+          method: postMethod, // POST /phrases
+          throttle: {
+            rateLimit: 5,
+            burstLimit: 2
+          }
+        }
+      ]
+    });
+
 
 
     // Lambda: GET /phrases/{userId}
@@ -77,7 +111,7 @@ export class LanguageLearningApiStack extends cdk.Stack {
     // 权限：读写 DynamoDB + 调用 Translate
     table.grantReadWriteData(translateFunction);
     translateFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['translate:TranslateText','comprehend:DetectDominantLanguage'],
+      actions: ['translate:TranslateText', 'comprehend:DetectDominantLanguage'],
       resources: ['*']
     }));
 
