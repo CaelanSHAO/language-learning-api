@@ -45,7 +45,7 @@ export class LanguageLearningApiStack extends cdk.Stack {
     const phrases = api.root.addResource('phrases');
     const postMethod = phrases.addMethod('POST', new apigateway.LambdaIntegration(postPhraseFunction), {
       apiKeyRequired: true
-    });    
+    });
 
 
     // 创建 API Key
@@ -64,7 +64,28 @@ export class LanguageLearningApiStack extends cdk.Stack {
     });
     usagePlan.addApiKey(apiKey);
 
-    // ✅ 把 POST 方法绑定到 usage plan
+    // 1. 创建 Lambda 函数
+    const putPhraseFunction = new NodejsFunction(this, 'PutPhraseFunction', {
+      entry: 'lambda/putPhrase.ts',
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_18_X,
+      environment: {
+        TABLE_NAME: table.tableName
+      }
+    });
+    
+    
+
+    // 2. 授权访问 DynamoDB
+    table.grantWriteData(putPhraseFunction);
+
+    // 3. 添加 PUT 路由 + 保存 Method 实例
+    const putMethod = phrases.addMethod('PUT', new apigateway.LambdaIntegration(putPhraseFunction), {
+      apiKeyRequired: true
+    });
+
+
+    // ✅ 把 POST 和 PUT 方法绑定到 usage plan
     usagePlan.addApiStage({
       stage: api.deploymentStage,
       throttle: [
@@ -74,9 +95,17 @@ export class LanguageLearningApiStack extends cdk.Stack {
             rateLimit: 5,
             burstLimit: 2
           }
+        },
+        {
+          method: putMethod, // PUT /phrases
+          throttle: {
+            rateLimit: 5,
+            burstLimit: 2
+          }
         }
       ]
     });
+    ;
 
 
 
@@ -120,6 +149,9 @@ export class LanguageLearningApiStack extends cdk.Stack {
     const translation = phraseItem.addResource('translation');
 
     translation.addMethod('GET', new apigateway.LambdaIntegration(translateFunction));
+
+
+
 
 
 
