@@ -4,6 +4,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
 
 export class LanguageLearningApiStack extends cdk.Stack {
@@ -32,7 +33,6 @@ export class LanguageLearningApiStack extends cdk.Stack {
         TABLE_NAME: table.tableName
       }
     });
-    
 
     // 权限：允许 Lambda 访问 DynamoDB
     table.grantWriteData(postPhraseFunction);
@@ -44,6 +44,50 @@ export class LanguageLearningApiStack extends cdk.Stack {
 
     const phrases = api.root.addResource('phrases');
     phrases.addMethod('POST', new apigateway.LambdaIntegration(postPhraseFunction));
+
+
+    // Lambda: GET /phrases/{userId}
+    const getPhrasesFunction = new NodejsFunction(this, 'GetPhrasesFunction', {
+      entry: 'lambda/getPhrases.ts', // 新的 handler 文件
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_18_X,
+      environment: {
+        TABLE_NAME: table.tableName
+      }
+    });
+
+    // 权限：允许 Lambda 读取 DynamoDB
+    table.grantReadData(getPhrasesFunction);
+
+    // API Gateway: GET /phrases/{userId}
+    const phraseWithUserId = phrases.addResource('{userId}');
+    phraseWithUserId.addMethod('GET', new apigateway.LambdaIntegration(getPhrasesFunction));
+
+    // Lambda: GET /phrases/{userId}/{phraseId}/translation
+    const translateFunction = new NodejsFunction(this, 'TranslatePhraseFunction', {
+      entry: 'lambda/translatePhrase.ts',
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_18_X,
+      environment: {
+        TABLE_NAME: table.tableName
+      }
+    });
+
+
+    // 权限：读写 DynamoDB + 调用 Translate
+    table.grantReadWriteData(translateFunction);
+    translateFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['translate:TranslateText','comprehend:DetectDominantLanguage'],
+      resources: ['*']
+    }));
+
+    // API 路由
+    const phraseItem = phraseWithUserId.addResource('{phraseId}');
+    const translation = phraseItem.addResource('translation');
+
+    translation.addMethod('GET', new apigateway.LambdaIntegration(translateFunction));
+
+
 
   }
 }
